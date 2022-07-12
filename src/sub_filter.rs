@@ -16,6 +16,7 @@ where
     id: u32,
     label: L,
     inverted: bool,
+    active: bool,
 
     marker_0: PhantomData<TL>,
     marker_1: PhantomData<SL>,
@@ -27,18 +28,19 @@ where
     TL: TopLabel,
     SL: SubLabel,
 {
-    fn new(id: u32, label: L, inverted: bool) -> Self {
+    fn new(id: u32, label: L, inverted: bool, active: bool) -> Self {
         Self {
             id,
             label,
             inverted,
+            active,
             marker_0: PhantomData,
             marker_1: PhantomData,
         }
     }
 
     pub(crate) fn filter<D: LabeledData<L, TL, SL>>(&self, data: &D) -> bool {
-        data.get_labels().contains(&self.label) ^ self.inverted
+        !self.active || data.get_labels().contains(&self.label) ^ self.inverted
     }
 
     pub(crate) fn label(&self) -> &L {
@@ -61,6 +63,7 @@ where
             id: self.id,
             label: self.label.clone(),
             inverted: self.inverted,
+            active: self.active,
             marker_0: PhantomData,
             marker_1: PhantomData,
         }
@@ -114,7 +117,7 @@ where
 {
     pub(crate) fn new(label: L, id: u32) -> SubFilter<L, TL, SL> {
         SubFilter {
-            core: SubFilterCore::new(id, label, false),
+            core: SubFilterCore::new(id, label, false, true),
             usefull_top_level_labels: Vec::new(),
             useless_top_level_labels: Vec::new(),
             usefull_sub_level_labels: Vec::new(),
@@ -140,85 +143,111 @@ where
     }
 
     pub(crate) fn show(&mut self, ui: &mut Ui) -> FilterInfo {
-        if self.inverted {
-            let rich_text = RichText::new("Not").color(Color32::RED);
-            ui.add(<EguiLabel>::new(rich_text));
-        } else {
-            ui.add(EguiLabel::new(""));
-        }
+        let inner_changed = ui
+            .add_enabled_ui(self.core.active, |ui| {
+                let size = ui.available_size();
+                let size = (25.0, size.y);
+                if self.inverted {
+                    let rich_text = RichText::new("Not").color(Color32::RED);
+                    ui.add_sized(size, <EguiLabel>::new(rich_text));
+                } else {
+                    ui.add_sized(size, EguiLabel::new(""));
+                }
 
-        let top_changed = ComboBox::from_id_source(format!("top_level_label_{}", self.id))
-            .selected_text(self.label.get_top_level_label().to_string())
-            .show_ui(ui, |ui| {
-                let mut changed = false;
-                for top_level_label in self.usefull_top_level_labels.iter() {
-                    changed |= ui
-                        .selectable_value(
-                            &mut self.core.label,
-                            top_level_label.clone(),
-                            top_level_label.get_top_level_label().to_string(),
-                        )
-                        .changed();
-                }
-                for top_level_label in self.useless_top_level_labels.iter() {
-                    let text = RichText::new(top_level_label.get_top_level_label().to_string())
-                        .color(Color32::DARK_GRAY);
-                    changed |= ui
-                        .selectable_value(&mut self.core.label, top_level_label.clone(), text)
-                        .changed();
-                }
-                changed
+                let top_changed = ComboBox::from_id_source(format!("top_level_label_{}", self.id))
+                    .selected_text(self.label.get_top_level_label().to_string())
+                    .show_ui(ui, |ui| {
+                        let mut changed = false;
+                        for top_level_label in self.usefull_top_level_labels.iter() {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut self.core.label,
+                                    top_level_label.clone(),
+                                    top_level_label.get_top_level_label().to_string(),
+                                )
+                                .changed();
+                        }
+                        for top_level_label in self.useless_top_level_labels.iter() {
+                            let text =
+                                RichText::new(top_level_label.get_top_level_label().to_string())
+                                    .color(Color32::DARK_GRAY);
+                            changed |= ui
+                                .selectable_value(
+                                    &mut self.core.label,
+                                    top_level_label.clone(),
+                                    text,
+                                )
+                                .changed();
+                        }
+                        changed
+                    })
+                    .inner
+                    .unwrap_or(false);
+
+                let sub_changed = if let Some(sub_level_label) = self.label.get_sub_level_label() {
+                    ComboBox::from_id_source(format!("sub_level_label_{}", self.id))
+                        .selected_text(sub_level_label.to_string())
+                        .show_ui(ui, |ui| {
+                            let mut changed = false;
+                            for sub_level_label in self.usefull_sub_level_labels.iter() {
+                                let text = if let Some(sub_level_label) =
+                                    sub_level_label.get_sub_level_label()
+                                {
+                                    sub_level_label.to_string()
+                                } else {
+                                    continue;
+                                };
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut self.core.label,
+                                        sub_level_label.clone(),
+                                        text,
+                                    )
+                                    .changed();
+                            }
+                            for sub_level_label in self.useless_sub_level_labels.iter() {
+                                let text = if let Some(sub_level_label) =
+                                    sub_level_label.get_sub_level_label()
+                                {
+                                    RichText::new(sub_level_label.to_string())
+                                        .color(Color32::DARK_GRAY)
+                                } else {
+                                    continue;
+                                };
+                                changed |= ui
+                                    .selectable_value(
+                                        &mut self.core.label,
+                                        sub_level_label.clone(),
+                                        text,
+                                    )
+                                    .changed();
+                            }
+                            changed
+                        })
+                        .inner
+                        .unwrap_or(false)
+                } else {
+                    ui.label("");
+                    false
+                };
+
+                let inverted = if ui.button("invert").clicked() {
+                    self.core.inverted = !self.core.inverted;
+                    true
+                } else {
+                    false
+                };
+
+                top_changed || sub_changed || inverted
             })
-            .inner
-            .unwrap_or(false);
-
-        let sub_changed = if let Some(sub_level_label) = self.label.get_sub_level_label() {
-            ComboBox::from_id_source(format!("sub_level_label_{}", self.id))
-                .selected_text(sub_level_label.to_string())
-                .show_ui(ui, |ui| {
-                    let mut changed = false;
-                    for sub_level_label in self.usefull_sub_level_labels.iter() {
-                        let text =
-                            if let Some(sub_level_label) = sub_level_label.get_sub_level_label() {
-                                sub_level_label.to_string()
-                            } else {
-                                continue;
-                            };
-                        changed |= ui
-                            .selectable_value(&mut self.core.label, sub_level_label.clone(), text)
-                            .changed();
-                    }
-                    for sub_level_label in self.useless_sub_level_labels.iter() {
-                        let text =
-                            if let Some(sub_level_label) = sub_level_label.get_sub_level_label() {
-                                RichText::new(sub_level_label.to_string()).color(Color32::DARK_GRAY)
-                            } else {
-                                continue;
-                            };
-                        changed |= ui
-                            .selectable_value(&mut self.core.label, sub_level_label.clone(), text)
-                            .changed();
-                    }
-                    changed
-                })
-                .inner
-                .unwrap_or(false)
-        } else {
-            ui.label("");
-            false
-        };
-
-        let inverted = if ui.button("invert").clicked() {
-            self.core.inverted = !self.core.inverted;
-            true
-        } else {
-            false
-        };
+            .inner;
 
         let removed = ui.button("remove").clicked();
 
+        let activision_changed = ui.checkbox(&mut self.core.active, "").changed();
+
         FilterInfo {
-            was_changed: top_changed || sub_changed || inverted || removed,
+            was_changed: inner_changed || activision_changed || removed,
             needs_removal: removed,
         }
     }
