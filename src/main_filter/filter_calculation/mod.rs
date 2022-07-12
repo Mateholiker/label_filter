@@ -37,24 +37,26 @@ where
         let mut data_counter = 0;
         let mut label_map = HashMap::new();
 
-        'label_chunk_loop: for label_chunk in labels.iter() {
+        for label_chunk in labels.iter() {
             //filter the chunk
-            for filter in all_filters
+            let mut filtered_out = false;
+            'inner: for filter in all_filters
                 .iter()
                 .filter(|&f| Some(f) != filter.as_ref().map(|(_i, f)| f))
             {
-                if !filter.filter(&label_chunk) {
-                    continue 'label_chunk_loop;
+                filtered_out |= !filter.filter(&label_chunk);
+                if filtered_out {
+                    break 'inner;
                 }
             }
 
-            //increase the counter
-            data_counter += 1;
+            //increment tho data_counter just if the trajectory is not filtered out
+            data_counter += !filtered_out as u32;
 
             //insert the labels
             for label in label_chunk {
-                let label_counter = label_map.entry(label).or_insert(0);
-                *label_counter += 1;
+                let not_filtered_out_counter = label_map.entry(label).or_insert(0);
+                *not_filtered_out_counter += !filtered_out as u32;
             }
         }
 
@@ -66,16 +68,21 @@ where
         let mut usefull_top_level_labels: Vec<L> = Vec::new();
         let mut usefull_sub_level_labels: Vec<L> = Vec::new();
 
-        'label_loop: for (label, counter) in label_map.drain() {
-            assert!(counter > 0);
-            if counter == data_counter {
-                continue 'label_loop;
-            }
+        let mut useless_top_level_labels: Vec<L> = Vec::new();
+        let mut useless_sub_level_labels: Vec<L> = Vec::new();
+
+        for (label, not_filtered_out_counter) in label_map.drain() {
             match current_label {
                 Some(current_label)
                     if current_label.get_top_level_label() == label.get_top_level_label() =>
                 {
-                    if !usefull_sub_level_labels.iter().any(|usefull_label| {
+                    if not_filtered_out_counter == 0 || not_filtered_out_counter == data_counter {
+                        if !useless_sub_level_labels.iter().any(|useless_label| {
+                            useless_label.get_sub_level_label() == label.get_sub_level_label()
+                        }) {
+                            useless_sub_level_labels.push(label.clone());
+                        }
+                    } else if !usefull_sub_level_labels.iter().any(|usefull_label| {
                         usefull_label.get_sub_level_label() == label.get_sub_level_label()
                     }) {
                         usefull_sub_level_labels.push(label.clone());
@@ -83,24 +90,46 @@ where
                 }
 
                 _ => {
-                    if !usefull_top_level_labels.iter().any(|usefull_label| {
+                    let is_in_useless = useless_top_level_labels.iter().any(|useless_label| {
+                        useless_label.get_top_level_label() == label.get_top_level_label()
+                    });
+
+                    let is_in_useful = usefull_top_level_labels.iter().any(|usefull_label| {
                         usefull_label.get_top_level_label() == label.get_top_level_label()
-                    }) {
+                    });
+
+                    if not_filtered_out_counter == 0 || not_filtered_out_counter == data_counter {
+                        if !is_in_useful && !is_in_useless {
+                            useless_top_level_labels.push(label.clone());
+                        }
+                    } else if !is_in_useful {
                         usefull_top_level_labels.push(label.clone());
                     }
                 }
             }
         }
 
-        usefull_sub_level_labels.sort();
         usefull_top_level_labels.sort();
+
+        //it is possible that we have added a label to useless top labels and then added it to usefull top labels
+        useless_top_level_labels.drain_filter(|useless_label| {
+            usefull_top_level_labels.iter().any(|usefull_label| {
+                usefull_label.get_top_level_label() == useless_label.get_top_level_label()
+            })
+        });
+
+        useless_top_level_labels.sort();
+        usefull_sub_level_labels.sort();
+        useless_sub_level_labels.sort();
 
         if let Some((i, core)) = filter {
             //we had the FilterLabel work
             let filter = SubFilter::from_core_with_label_options(
                 core,
                 usefull_top_level_labels,
+                useless_top_level_labels,
                 usefull_sub_level_labels,
+                useless_sub_level_labels,
             );
             manager.push_finished_filter(i, filter, id);
         } else {

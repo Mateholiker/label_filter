@@ -100,8 +100,10 @@ where
 {
     core: SubFilterCore<L, TL, SL>,
 
-    top_level_label_options: Vec<L>,
-    sub_level_label_options_for_current_label: Vec<L>,
+    usefull_top_level_labels: Vec<L>,
+    useless_top_level_labels: Vec<L>,
+    usefull_sub_level_labels: Vec<L>,
+    useless_sub_level_labels: Vec<L>,
 }
 
 impl<L, TL, SL> SubFilter<L, TL, SL>
@@ -113,21 +115,27 @@ where
     pub(crate) fn new(label: L, id: u32) -> SubFilter<L, TL, SL> {
         SubFilter {
             core: SubFilterCore::new(id, label, false),
-            top_level_label_options: Vec::new(),
-            sub_level_label_options_for_current_label: Vec::new(),
+            usefull_top_level_labels: Vec::new(),
+            useless_top_level_labels: Vec::new(),
+            usefull_sub_level_labels: Vec::new(),
+            useless_sub_level_labels: Vec::new(),
         }
     }
 
     pub(crate) fn from_core_with_label_options(
         core: SubFilterCore<L, TL, SL>,
 
-        top_level_label_options: Vec<L>,
-        sub_level_label_options_for_current_label: Vec<L>,
+        usefull_top_level_labels: Vec<L>,
+        useless_top_level_labels: Vec<L>,
+        usefull_sub_level_labels: Vec<L>,
+        useless_sub_level_labels: Vec<L>,
     ) -> SubFilter<L, TL, SL> {
         SubFilter {
             core,
-            top_level_label_options,
-            sub_level_label_options_for_current_label,
+            usefull_top_level_labels,
+            useless_top_level_labels,
+            usefull_sub_level_labels,
+            useless_sub_level_labels,
         }
     }
 
@@ -140,16 +148,23 @@ where
         }
 
         let top_changed = ComboBox::from_id_source(format!("top_level_label_{}", self.id))
-            .selected_text(format!("{}", self.label.get_top_level_label()))
+            .selected_text(self.label.get_top_level_label().to_string())
             .show_ui(ui, |ui| {
                 let mut changed = false;
-                for top_level_label in self.top_level_label_options.iter() {
+                for top_level_label in self.usefull_top_level_labels.iter() {
                     changed |= ui
                         .selectable_value(
                             &mut self.core.label,
                             top_level_label.clone(),
-                            format!("{}", top_level_label.get_top_level_label()),
+                            top_level_label.get_top_level_label().to_string(),
                         )
+                        .changed();
+                }
+                for top_level_label in self.useless_top_level_labels.iter() {
+                    let text = RichText::new(top_level_label.get_top_level_label().to_string())
+                        .color(Color32::DARK_GRAY);
+                    changed |= ui
+                        .selectable_value(&mut self.core.label, top_level_label.clone(), text)
                         .changed();
                 }
                 changed
@@ -159,15 +174,26 @@ where
 
         let sub_changed = if let Some(sub_level_label) = self.label.get_sub_level_label() {
             ComboBox::from_id_source(format!("sub_level_label_{}", self.id))
-                .selected_text(format!("{}", sub_level_label))
+                .selected_text(sub_level_label.to_string())
                 .show_ui(ui, |ui| {
                     let mut changed = false;
-                    for sub_level_label in self.sub_level_label_options_for_current_label.iter() {
+                    for sub_level_label in self.usefull_sub_level_labels.iter() {
                         let text =
                             if let Some(sub_level_label) = sub_level_label.get_sub_level_label() {
-                                format!("{}", sub_level_label)
+                                sub_level_label.to_string()
                             } else {
-                                "None".to_owned()
+                                continue;
+                            };
+                        changed |= ui
+                            .selectable_value(&mut self.core.label, sub_level_label.clone(), text)
+                            .changed();
+                    }
+                    for sub_level_label in self.useless_sub_level_labels.iter() {
+                        let text =
+                            if let Some(sub_level_label) = sub_level_label.get_sub_level_label() {
+                                RichText::new(sub_level_label.to_string()).color(Color32::DARK_GRAY)
+                            } else {
+                                continue;
                             };
                         changed |= ui
                             .selectable_value(&mut self.core.label, sub_level_label.clone(), text)
@@ -224,8 +250,11 @@ where
     fn from(core: SubFilterCore<L, TL, SL>) -> Self {
         SubFilter {
             core,
-            top_level_label_options: Vec::new(),
-            sub_level_label_options_for_current_label: Vec::new(),
+
+            usefull_top_level_labels: Vec::new(),
+            useless_top_level_labels: Vec::new(),
+            usefull_sub_level_labels: Vec::new(),
+            useless_sub_level_labels: Vec::new(),
         }
     }
 }

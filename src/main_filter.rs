@@ -16,6 +16,7 @@ where
 {
     filters: Vec<SubFilter<L, TL, SL>>,
     top_level_label_options: Vec<L>,
+    default_label: Option<L>,
     needs_init: bool,
     thread_communicator: Arc<ThreadCommunicator<L, TL, SL>>,
 }
@@ -30,6 +31,8 @@ where
         MainFilter {
             filters: Vec::new(),
             top_level_label_options: Vec::new(),
+            default_label: None,
+
             needs_init: true,
             thread_communicator: ThreadCommunicator::new(),
         }
@@ -59,6 +62,9 @@ where
             self.thread_communicator.try_get_finished()
         {
             self.filters = filters;
+            if self.default_label.is_none() {
+                self.default_label = top_level_label_options.first().cloned();
+            }
             self.top_level_label_options = top_level_label_options;
         }
 
@@ -66,12 +72,17 @@ where
         let mut new_filter = None;
 
         ui.horizontal(|ui| {
-            let button = Button::new("Add Filter");
-            if ui
-                .add_enabled(!self.top_level_label_options.is_empty(), button)
-                .clicked()
-            {
-                assert!(!self.top_level_label_options.is_empty());
+            let button = if self.top_level_label_options.is_empty() {
+                Button::new("Add Pointless Filter")
+            } else {
+                Button::new("Add Filter")
+            };
+
+            let clicked = ui
+                .add_enabled(self.default_label.is_some(), button)
+                .clicked();
+
+            if clicked {
                 filter_was_changed = true;
                 let id = (0..)
                     .find(|&id| {
@@ -83,12 +94,13 @@ where
                         true
                     })
                     .expect("not to have more than i32 many filterns");
-                new_filter = Some(SubFilter::new(
-                    self.top_level_label_options
-                        .pop()
-                        .expect("unreachable since we asserted that is is not empty"),
-                    id,
-                ));
+
+                let label = self
+                    .top_level_label_options
+                    .pop()
+                    .or_else(|| self.default_label.clone());
+
+                new_filter = label.map(|label| SubFilter::new(label, id));
             }
 
             //if !self.thread_communicator.is_idle() {
