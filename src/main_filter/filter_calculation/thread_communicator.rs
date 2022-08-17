@@ -183,7 +183,8 @@ where
     ///returns a progress (a, b) which means a/b
     pub(crate) fn get_progress(&self) -> (usize, usize) {
         let current_work_state = self.work_state.lock().unwrap();
-        match current_work_state.deref() {
+        let state = current_work_state.deref();
+        match state {
             WorkState::Working {
                 all_filters_len,
                 thread_state,
