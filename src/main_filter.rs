@@ -135,6 +135,22 @@ where
         filter_was_changed
     }
 
+    pub fn add_filter<D: LabeledData<L, TL, SL>>(&mut self, label: L, data: &[D]) {
+        let id = (0..)
+            .find(|&id| {
+                for filter in self.filters.iter() {
+                    if filter.id() == id {
+                        return false;
+                    }
+                }
+                true
+            })
+            .expect("not to have more than i32 many filterns");
+
+        self.filters.push(SubFilter::new(label, id));
+        self.update_all_filter(data);
+    }
+
     fn update_all_filter<D: LabeledData<L, TL, SL>>(&self, data: &[D]) {
         self.thread_communicator.start(data, &self.filters);
     }
